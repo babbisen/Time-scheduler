@@ -1,0 +1,45 @@
+* { box-sizing: border-box; }
+body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f5f5f5; }
+#app { max-width: 1200px; margin: 0 auto; padding: 20px; }
+.hidden { display: none; }
+
+.login { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); text-align: center; }
+.login input { padding: 10px; width: 200px; margin-right: 8px; }
+.login button { padding: 10px 16px; }
+.error { color: #d32f2f; }
+
+.header { display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: center; gap: 10px; margin-bottom: 20px; }
+.week-nav button { margin-right: 6px; }
+.week-label { text-align: center; font-weight: bold; font-size: 1.1em; }
+.actors { text-align: right; }
+.actors button { margin-left: 6px; padding: 8px 12px; border-radius: 16px; border: 1px solid #ccc; background: white; cursor: pointer; }
+.actors button.active { background: #3949ab; color: white; }
+
+.content { display: grid; grid-template-columns: 3fr 1fr; gap: 16px; }
+.grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+.day-column { background: white; border-radius: 8px; padding: 8px; min-height: 220px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+.day-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.day-header button { padding: 4px 8px; }
+.block { padding: 6px; border-radius: 6px; margin-bottom: 6px; color: #333; border: 1px solid rgba(0,0,0,0.05); }
+.block-header { display: flex; justify-content: space-between; font-weight: bold; }
+.block .meta { font-size: 0.9em; display: flex; justify-content: space-between; }
+.summary { margin-top: 10px; padding: 6px; background: #f1f8e9; border-radius: 6px; font-size: 0.9em; }
+.summary.bad { background: #ffebee; }
+.summary .line { display: flex; justify-content: space-between; }
+
+.sidebar { background: white; padding: 10px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+.sidebar h3 { margin-top: 0; }
+.sidebar .person-total { display: flex; justify-content: space-between; padding: 4px 0; }
+.sidebar .overall { margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; }
+
+.history { margin-top: 20px; background: white; padding: 10px; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+.history h3 { margin-top: 0; }
+.history-item { padding: 6px 0; border-bottom: 1px solid #eee; font-size: 0.95em; }
+.history-item:last-child { border-bottom: none; }
+
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; }
+.modal .panel { background: white; padding: 20px; border-radius: 8px; width: 360px; }
+.modal label { display: block; margin-bottom: 6px; }
+.modal input { width: 100%; padding: 8px; margin-bottom: 10px; }
+.modal .actions { text-align: right; }
+.modal button { margin-left: 6px; }
