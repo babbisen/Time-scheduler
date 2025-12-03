@@ -1,0 +1,17 @@
+{
+  "name": "time-scheduler",
+  "version": "1.0.0",
+  "description": "Shared working time coordinator",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "NODE_ENV=development node server.js"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.6",
+    "express": "^4.19.2",
+    "luxon": "^3.4.4",
+    "nanoid": "^5.0.7"
+  }
+}
