@@ -1,0 +1,10 @@
+{
+  "name": "time-scheduler",
+  "version": "1.0.0",
+  "description": "Web app to coordinate and track working time for four people.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {}
+}

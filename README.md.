@@ -1,1 +1,20 @@
-# Time-scheduler.
+# Time Scheduler
+
+Simple Node.js server with a static front-end for coordinating working time for four fixed people using shared password access.
+
+## Running locally
+
+1. Install Node.js (v18+).
+2. Start the server:
+
+```bash
+npm start
+```
+
+The app listens on `http://localhost:3000`.
+
+## Notes
+
+- Default shared password is `letmein`. Override with `APP_PASSWORD`.
+- Timezone calculations assume Europe/Brussels.
+- Data is stored in memory; restarting the server clears blocks and history.
