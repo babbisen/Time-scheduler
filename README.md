@@ -12,6 +12,7 @@ npm run dev
 Then open http://localhost:3000.
 
 * Password gate is disabled for now; the login screen will let anyone in.
+* On Vercel, data is stored under `/tmp/data` and may reset between cold starts; the app falls back to in-memory storage if writes are unavailable.
 * Data is stored in `data/db.json`; it will be created on first run.
 * Timezone is locked to Europe/Brussels.
 
