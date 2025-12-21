@@ -1,4 +1,4 @@
-const { DateTime, Interval } = luxon;
+const { DateTime } = luxon;
 const TIMEZONE = 'Europe/Brussels';
 const appEl = document.getElementById('app');
 
@@ -10,12 +10,33 @@ let state = {
   weekStart: DateTime.now().setZone(TIMEZONE).startOf('week'),
   data: null,
   history: [],
-  modal: null
+  modal: null,
+  darkMode: false
 };
+
+state.darkMode = loadTheme();
+applyTheme(state.darkMode);
 
 function setState(patch) {
   state = { ...state, ...patch };
   render();
+}
+
+function applyTheme(isDark) {
+  document.body.classList.toggle('dark', isDark);
+  try {
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+  } catch (err) {
+    // ignore
+  }
+}
+
+function loadTheme() {
+  try {
+    return localStorage.getItem('theme') === 'dark';
+  } catch (err) {
+    return false;
+  }
 }
 
 function fmtDateRange(startIso, endIso) {
@@ -29,14 +50,6 @@ function fmtDurationHours(hours) {
   const m = Math.round((hours - h) * 60);
   if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
-}
-
-function afterHoursOverlap(block) {
-  const start = DateTime.fromISO(block.start, { zone: TIMEZONE });
-  const end = DateTime.fromISO(block.end, { zone: TIMEZONE });
-  const afterStart = start.startOf('day').set({ hour: 17 });
-  const afterEnd = start.startOf('day').plus({ days: 1 }).set({ hour: 1 });
-  return Interval.fromDateTimes(start, end).overlaps(Interval.fromDateTimes(afterStart, afterEnd));
 }
 
 async function api(path, options = {}) {
@@ -136,9 +149,8 @@ function renderLogin() {
 
 function dayStatus(summary) {
   if (summary.total === 0) return { text: 'No hours yet', cls: 'status-warning' };
-  if (summary.total > 8 || summary.early > 4) return { text: 'Quota exceeded', cls: 'status-error' };
-  if (summary.total === 8 && summary.after >= 4) return { text: 'Complete', cls: 'status-complete' };
-  if (summary.total === 8 && summary.after < 4) return { text: `Missing ${Number((4 - summary.after).toFixed(2))}h after 17:00`, cls: 'status-warning' };
+  if (summary.total > 8) return { text: 'Over 8h logged', cls: 'status-error' };
+  if (summary.total === 8) return { text: 'Complete', cls: 'status-complete' };
   return { text: `Missing ${Number((8 - summary.total).toFixed(2))}h`, cls: 'status-warning' };
 }
 
@@ -157,6 +169,7 @@ function renderHeader() {
       <div><strong>Week ${weekNumber}</strong> (${weekLabel})</div>
       <div class="identity">
         ${state.data.persons.map((p) => `<button data-person="${p.id}" class="${state.currentActor === p.id ? 'active' : ''}">${p.name}</button>`).join('')}
+        <button class="theme-toggle" type="button" data-theme-toggle>${state.darkMode ? 'Light mode' : 'Dark mode'}</button>
       </div>
     </div>
   `;
@@ -192,7 +205,6 @@ function renderDayColumn(day, summary, blocks) {
                 </div>
                 <div class="block-meta">
                   <span>${fmtDurationHours(durationHours(b))}</span>
-                  ${afterHoursOverlap(b) ? '<span class="badge">After-hours</span>' : ''}
                 </div>
                 ${allowEdit ? '<span class="edit-hint" aria-hidden="true">✎ Edit</span>' : ''}
               </div>
@@ -200,8 +212,8 @@ function renderDayColumn(day, summary, blocks) {
           }).join('') || '<div class="footer-note">No blocks yet</div>'}
         </div>
         <div class="day-summary">
-          <span>Early ${summary.early.toFixed(1)}h</span>
-          <span>After ${summary.after.toFixed(1)}h</span>
+          <span>${summary.total.toFixed(1)}h logged</span>
+          <span>${status.text}</span>
         </div>
       </div>
     </div>
@@ -226,6 +238,7 @@ function renderWeekGrid() {
 
 function renderSummarySidebar() {
   const personTotals = state.data.personSummaries;
+  const weeklyEarnings = state.data.weekTotal * 15;
   return `
     <div class="side-panel">
       <div class="card weekly-panel">
@@ -249,6 +262,10 @@ function renderSummarySidebar() {
           <span>Week total</span>
           <strong>${state.data.weekTotal.toFixed(1)} / 40h</strong>
         </div>
+        <div class="week-total earnings">
+          <span>Weekly earnings</span>
+          <strong>$${weeklyEarnings.toFixed(2)}</strong>
+        </div>
       </div>
       <div class="card history">
         <h3>Recent changes</h3>
@@ -269,25 +286,18 @@ function renderModal() {
   const startDefault = block ? DateTime.fromISO(block.start, { zone: TIMEZONE }) : dayDt.set({ hour: 9, minute: 0 });
   const endDefault = block ? DateTime.fromISO(block.end, { zone: TIMEZONE }) : dayDt.set({ hour: 17, minute: 0 });
   const title = block ? 'Edit block' : `Add block for ${dayDt.toFormat('ccc dd LLL')}`;
-  const quickPresets = [
-    { label: '13:00–17:00', start: dayDt.set({ hour: 13 }), end: dayDt.set({ hour: 17 }) },
-    { label: '17:00–21:00', start: dayDt.set({ hour: 17 }), end: dayDt.set({ hour: 21 }) },
-    { label: '18:00–22:00', start: dayDt.set({ hour: 18 }), end: dayDt.set({ hour: 22 }) },
-  ];
+  const actorName = state.data.persons.find((p) => p.id === state.currentActor)?.name || state.currentActor;
   return `
     <div class="modal-backdrop">
       <div class="modal card">
         <h3>${title}</h3>
         <form id="block-form">
-          <label>Start</label>
-          <input type="datetime-local" name="start" value="${startDefault.toFormat("yyyy-LL-dd'T'HH:mm")}" required />
-          <label>End</label>
-          <input type="datetime-local" name="end" value="${endDefault.toFormat("yyyy-LL-dd'T'HH:mm")}" required />
-          <div class="footer-note">Will apply to ${state.currentActor}</div>
+          <label>Start time</label>
+          <input type="time" name="start" value="${startDefault.toFormat('HH:mm')}" required />
+          <label>End time</label>
+          <input type="time" name="end" value="${endDefault.toFormat('HH:mm')}" required />
+          <div class="footer-note">Will apply to ${actorName}</div>
           ${state.error ? `<div class="error">${state.error}</div>` : ''}
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            ${quickPresets.map((p) => `<button type="button" class="secondary" data-preset-start="${p.start.toISO()}" data-preset-end="${p.end.toISO()}">${p.label}</button>`).join('')}
-          </div>
           <div style="display:flex; gap:8px; justify-content:flex-end;">
             ${block ? '<button type="button" class="secondary" id="delete-block">Delete</button>' : ''}
             <button type="button" class="secondary" id="cancel-modal">Cancel</button>
@@ -321,9 +331,18 @@ function renderApp() {
     });
   });
 
-  document.querySelectorAll('.identity button').forEach((btn) => {
+  document.querySelectorAll('.identity [data-person]').forEach((btn) => {
     btn.addEventListener('click', () => setState({ currentActor: btn.getAttribute('data-person') }));
   });
+
+  const themeToggle = document.querySelector('[data-theme-toggle]');
+  if (themeToggle) {
+    themeToggle.addEventListener('click', () => {
+      const next = !state.darkMode;
+      applyTheme(next);
+      setState({ darkMode: next });
+    });
+  }
 
   document.querySelectorAll('.day-row').forEach((col) => {
     col.addEventListener('click', (e) => {
@@ -345,18 +364,14 @@ function renderApp() {
     const form = document.getElementById('block-form');
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      const start = DateTime.fromISO(form.start.value, { zone: TIMEZONE }).toISO();
-      const end = DateTime.fromISO(form.end.value, { zone: TIMEZONE }).toISO();
+      const day = DateTime.fromISO(state.modal.day, { zone: TIMEZONE });
+      const [startHour, startMinute] = form.start.value.split(':').map(Number);
+      const [endHour, endMinute] = form.end.value.split(':').map(Number);
+      const start = day.set({ hour: startHour, minute: startMinute }).toISO();
+      const end = day.set({ hour: endHour, minute: endMinute }).toISO();
       const payload = { personId: state.currentActor, start, end };
       if (state.modal.block) payload.id = state.modal.block.id;
       saveBlock(payload, Boolean(state.modal.block));
-    });
-
-    form.querySelectorAll('button[data-preset-start]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        form.start.value = DateTime.fromISO(btn.getAttribute('data-preset-start')).toFormat("yyyy-LL-dd'T'HH:mm");
-        form.end.value = DateTime.fromISO(btn.getAttribute('data-preset-end')).toFormat("yyyy-LL-dd'T'HH:mm");
-      });
     });
 
     document.getElementById('cancel-modal').addEventListener('click', closeModal);
