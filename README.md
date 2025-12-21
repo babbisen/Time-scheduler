@@ -11,7 +11,7 @@ npm run dev
 
 Then open http://localhost:3000.
 
-* Default password: `letmein` (override with `APP_PASSWORD`).
+* Password gate is disabled for now; the login screen will let anyone in.
 * Data is stored in `data/db.json`; it will be created on first run.
 * Timezone is locked to Europe/Brussels.
 

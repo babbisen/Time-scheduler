@@ -2,15 +2,8 @@ import { NextResponse } from 'next/server';
 import { createSession, loadDb, saveDb, TIMEZONE } from '../../../lib/db.js';
 import { DateTime } from 'luxon';
 
-const PASSWORD = process.env.APP_PASSWORD || 'letmein';
-
 export async function POST(request) {
-  const body = await request.json();
-  const { password } = body || {};
-
-  if (password !== PASSWORD) {
-    return NextResponse.json({ error: 'Invalid password' }, { status: 401 });
-  }
+  await request.json().catch(() => ({}));
 
   const db = loadDb();
   const session = createSession(db);

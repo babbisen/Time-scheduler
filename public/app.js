@@ -120,9 +120,8 @@ function renderLogin() {
   appEl.innerHTML = `
     <div class="card login-card">
       <h2>Time Scheduler Access</h2>
-      <p class="footer-note">Shared URL, one password. Enter to continue.</p>
+      <p class="footer-note">Shared URL, no password required. Enter to continue.</p>
       <form id="login-form">
-        <input name="password" type="password" placeholder="Password" required />
         <button class="primary" type="submit">Enter</button>
         ${state.error ? `<div class="error">${state.error}</div>` : ''}
       </form>
@@ -131,8 +130,7 @@ function renderLogin() {
 
   document.getElementById('login-form').addEventListener('submit', (e) => {
     e.preventDefault();
-    const password = e.target.password.value;
-    login(password);
+    login('');
   });
 }
 
