@@ -163,37 +163,46 @@ function renderHeader() {
 }
 
 function renderDayColumn(day, summary, blocks) {
-  const dayLabel = day.toFormat('cccc dd');
+  const dayLabel = day.toFormat('cccc');
+  const dayDate = day.toFormat('dd LLL');
   const dayKey = day.toISODate();
   const dayBlocks = blocks.filter((b) => DateTime.fromISO(b.start, { zone: TIMEZONE }).toISODate() === dayKey)
     .sort((a, b) => DateTime.fromISO(a.start) - DateTime.fromISO(b.start));
   const status = dayStatus(summary);
   return `
-    <div class="day-column" data-day="${dayKey}">
-      <div class="day-header">
-        <span>${dayLabel}</span>
-        <span class="badge">Total ${summary.total.toFixed(1)} / 8h</span>
+    <div class="day-row" data-day="${dayKey}">
+      <div class="day-info">
+        <div class="day-title">
+          <span class="day-name">${dayLabel}</span>
+          <span class="day-date">${dayDate}</span>
+        </div>
+        <div class="day-total">Total ${summary.total.toFixed(1)} / 8h</div>
+        <div class="day-status ${status.cls}">${status.text}</div>
       </div>
-      ${dayBlocks.map((b) => {
-        const person = state.data.persons.find((p) => p.id === b.personId);
-        const allowEdit = b.personId === state.currentActor;
-        return `
-          <div class="block-card" data-block="${b.id}" style="border-left: 4px solid ${person.color}; opacity: ${allowEdit ? 1 : 0.7}">
-            <div class="block-meta">
-              <strong>${person.name}</strong>
-              <span>${fmtDateRange(b.start, b.end)}</span>
-            </div>
-            <div class="block-meta">
-              <span>${fmtDurationHours(durationHours(b))}</span>
-              ${afterHoursOverlap(b) ? '<span class="badge">After-hours</span>' : ''}
-            </div>
-            ${allowEdit ? '<small class="footer-note">Click to edit</small>' : ''}
-          </div>
-        `;
-      }).join('') || '<div class="footer-note">No blocks yet</div>'}
-      <div class="summary">
-        <div>Early ${summary.early.toFixed(1)}h | After ${summary.after.toFixed(1)}h</div>
-        <div class="${status.cls}">${status.text}</div>
+      <div class="day-body">
+        <div class="day-blocks">
+          ${dayBlocks.map((b) => {
+            const person = state.data.persons.find((p) => p.id === b.personId);
+            const allowEdit = b.personId === state.currentActor;
+            return `
+              <div class="block-card" data-block="${b.id}" style="border-left: 5px solid ${person.color}; opacity: ${allowEdit ? 1 : 0.6}">
+                <div class="block-meta">
+                  <strong>${person.name}</strong>
+                  <span>${fmtDateRange(b.start, b.end)}</span>
+                </div>
+                <div class="block-meta">
+                  <span>${fmtDurationHours(durationHours(b))}</span>
+                  ${afterHoursOverlap(b) ? '<span class="badge">After-hours</span>' : ''}
+                </div>
+                ${allowEdit ? '<span class="edit-hint" aria-hidden="true">✎ Edit</span>' : ''}
+              </div>
+            `;
+          }).join('') || '<div class="footer-note">No blocks yet</div>'}
+        </div>
+        <div class="day-summary">
+          <span>Early ${summary.early.toFixed(1)}h</span>
+          <span>After ${summary.after.toFixed(1)}h</span>
+        </div>
       </div>
     </div>
   `;
@@ -219,14 +228,27 @@ function renderSummarySidebar() {
   const personTotals = state.data.personSummaries;
   return `
     <div class="side-panel">
-      <div class="card">
+      <div class="card weekly-panel">
         <h3>Weekly totals</h3>
         ${state.data.persons.map((p) => {
           const hours = personTotals[p.id] || 0;
           const pct = Math.round((hours / 40) * 100);
-          return `<div class="person-summary"><span>${p.name}</span><span>${hours.toFixed(1)}h (${pct}%)</span></div>`;
+          return `
+            <div class="person-summary">
+              <div class="person-summary__header">
+                <span>${p.name}</span>
+                <span>${hours.toFixed(1)}h (${pct}%)</span>
+              </div>
+              <div class="progress">
+                <span style="width: ${Math.min(pct, 100)}%"></span>
+              </div>
+            </div>
+          `;
         }).join('')}
-        <div class="summary">Week total: ${state.data.weekTotal.toFixed(1)} / 40h</div>
+        <div class="week-total">
+          <span>Week total</span>
+          <strong>${state.data.weekTotal.toFixed(1)} / 40h</strong>
+        </div>
       </div>
       <div class="card history">
         <h3>Recent changes</h3>
@@ -303,7 +325,7 @@ function renderApp() {
     btn.addEventListener('click', () => setState({ currentActor: btn.getAttribute('data-person') }));
   });
 
-  document.querySelectorAll('.day-column').forEach((col) => {
+  document.querySelectorAll('.day-row').forEach((col) => {
     col.addEventListener('click', (e) => {
       const blockId = e.target.closest?.('.block-card')?.getAttribute('data-block');
       const day = col.getAttribute('data-day');
