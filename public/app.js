@@ -52,6 +52,22 @@ function fmtDurationHours(hours) {
   return `${h}h ${m}m`;
 }
 
+function getDaySummary(dayIso) {
+  return state.data?.daySummaries?.[dayIso] || { total: 0 };
+}
+
+function computeRemainingHours(dayIso, startIso, endIso, blockId) {
+  const summary = getDaySummary(dayIso);
+  const start = DateTime.fromISO(startIso, { zone: TIMEZONE });
+  const end = DateTime.fromISO(endIso, { zone: TIMEZONE });
+  const duration = Math.max(0, end.diff(start, 'minutes').minutes / 60);
+  const existing = state.data?.blocks?.find((b) => b.id === blockId);
+  const existingHours = existing ? durationHours(existing) : 0;
+  const projected = summary.total - existingHours + duration;
+  const remaining = Math.max(0, 8 - projected);
+  return { remaining, projected };
+}
+
 async function api(path, options = {}) {
   try {
     const res = await fetch(path, {
@@ -246,6 +262,7 @@ function renderSummarySidebar() {
         ${state.data.persons.map((p) => {
           const hours = personTotals[p.id] || 0;
           const pct = Math.round((hours / 40) * 100);
+          const earnings = hours * 15;
           return `
             <div class="person-summary">
               <div class="person-summary__header">
@@ -255,6 +272,7 @@ function renderSummarySidebar() {
               <div class="progress">
                 <span style="width: ${Math.min(pct, 100)}%"></span>
               </div>
+              <div class="person-earnings">$${earnings.toFixed(2)} earned</div>
             </div>
           `;
         }).join('')}
@@ -287,6 +305,12 @@ function renderModal() {
   const endDefault = block ? DateTime.fromISO(block.end, { zone: TIMEZONE }) : dayDt.set({ hour: 17, minute: 0 });
   const title = block ? 'Edit block' : `Add block for ${dayDt.toFormat('ccc dd LLL')}`;
   const actorName = state.data.persons.find((p) => p.id === state.currentActor)?.name || state.currentActor;
+  const remainingInfo = computeRemainingHours(
+    day,
+    startDefault.toISO(),
+    endDefault.toISO(),
+    block?.id
+  );
   return `
     <div class="modal-backdrop">
       <div class="modal card">
@@ -297,6 +321,9 @@ function renderModal() {
           <label>End time</label>
           <input type="time" name="end" value="${endDefault.toFormat('HH:mm')}" required />
           <div class="footer-note">Will apply to ${actorName}</div>
+          <div class="remaining-hours" id="remaining-hours">
+            ${fmtDurationHours(remainingInfo.remaining)} left to reach 8h today
+          </div>
           ${state.error ? `<div class="error">${state.error}</div>` : ''}
           <div style="display:flex; gap:8px; justify-content:flex-end;">
             ${block ? '<button type="button" class="secondary" id="delete-block">Delete</button>' : ''}
@@ -362,6 +389,21 @@ function renderApp() {
   const modalEl = document.querySelector('.modal-backdrop');
   if (modalEl) {
     const form = document.getElementById('block-form');
+    const remainingEl = document.getElementById('remaining-hours');
+
+    const updateRemaining = () => {
+      const day = DateTime.fromISO(state.modal.day, { zone: TIMEZONE });
+      const [startHour, startMinute] = form.start.value.split(':').map(Number);
+      const [endHour, endMinute] = form.end.value.split(':').map(Number);
+      const start = day.set({ hour: startHour, minute: startMinute }).toISO();
+      const end = day.set({ hour: endHour, minute: endMinute }).toISO();
+      const remainingInfo = computeRemainingHours(state.modal.day, start, end, state.modal.block?.id);
+      remainingEl.textContent = `${fmtDurationHours(remainingInfo.remaining)} left to reach 8h today`;
+    };
+
+    form.start.addEventListener('input', updateRemaining);
+    form.end.addEventListener('input', updateRemaining);
+
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       const day = DateTime.fromISO(state.modal.day, { zone: TIMEZONE });
