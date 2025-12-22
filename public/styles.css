@@ -87,6 +87,11 @@ button.secondary:hover {
   color: #fff;
 }
 
+body.dark .identity button.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.3);
+}
+
 .identity {
   display: flex;
   gap: 8px;

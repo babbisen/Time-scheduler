@@ -56,6 +56,25 @@ function getDaySummary(dayIso) {
   return state.data?.daySummaries?.[dayIso] || { total: 0 };
 }
 
+function isWeekend(dayIso) {
+  const day = DateTime.fromISO(dayIso, { zone: TIMEZONE });
+  return day.weekday === 6 || day.weekday === 7;
+}
+
+function getWeekendTotal() {
+  if (!state.data?.daySummaries || !state.weekStart) return 0;
+  const saturday = state.weekStart.plus({ days: 5 }).toISODate();
+  const sunday = state.weekStart.plus({ days: 6 }).toISODate();
+  return (state.data.daySummaries[saturday]?.total || 0) + (state.data.daySummaries[sunday]?.total || 0);
+}
+
+function getTargetHours(dayIso) {
+  if (isWeekend(dayIso)) {
+    return { target: 5, label: 'weekend' };
+  }
+  return { target: 8, label: 'day' };
+}
+
 function computeRemainingHours(dayIso, startIso, endIso, blockId) {
   const summary = getDaySummary(dayIso);
   const start = DateTime.fromISO(startIso, { zone: TIMEZONE });
@@ -63,9 +82,11 @@ function computeRemainingHours(dayIso, startIso, endIso, blockId) {
   const duration = Math.max(0, end.diff(start, 'minutes').minutes / 60);
   const existing = state.data?.blocks?.find((b) => b.id === blockId);
   const existingHours = existing ? durationHours(existing) : 0;
-  const projected = summary.total - existingHours + duration;
-  const remaining = Math.max(0, 8 - projected);
-  return { remaining, projected };
+  const { target, label } = getTargetHours(dayIso);
+  const baseTotal = isWeekend(dayIso) ? getWeekendTotal() : summary.total;
+  const projected = baseTotal - existingHours + duration;
+  const remaining = Math.max(0, target - projected);
+  return { remaining, projected, target, label };
 }
 
 async function api(path, options = {}) {
@@ -163,16 +184,18 @@ function renderLogin() {
   });
 }
 
-function dayStatus(summary) {
-  if (summary.total === 0) return { text: 'No hours yet', cls: 'status-warning' };
-  if (summary.total > 8) return { text: 'Over 8h logged', cls: 'status-error' };
-  if (summary.total === 8) return { text: 'Complete', cls: 'status-complete' };
-  return { text: `Missing ${Number((8 - summary.total).toFixed(2))}h`, cls: 'status-warning' };
+function dayStatus(summary, dayIso) {
+  const { target, label } = getTargetHours(dayIso);
+  const total = isWeekend(dayIso) ? getWeekendTotal() : summary.total;
+  if (total === 0) return { text: label === 'weekend' ? 'No weekend hours yet' : 'No hours yet', cls: 'status-warning' };
+  if (total > target) return { text: `Over ${target}h logged`, cls: 'status-error' };
+  if (total === target) return { text: 'Complete', cls: 'status-complete' };
+  return { text: `Missing ${Number((target - total).toFixed(2))}h`, cls: 'status-warning' };
 }
 
 function renderHeader() {
   const weekStart = state.weekStart;
-  const weekEnd = weekStart.plus({ days: 4 });
+  const weekEnd = weekStart.plus({ days: 6 });
   const weekLabel = `${weekStart.toFormat('dd LLL')}–${weekEnd.toFormat('dd LLL yyyy')}`;
   const weekNumber = weekStart.toFormat('WW');
   return `
@@ -197,7 +220,10 @@ function renderDayColumn(day, summary, blocks) {
   const dayKey = day.toISODate();
   const dayBlocks = blocks.filter((b) => DateTime.fromISO(b.start, { zone: TIMEZONE }).toISODate() === dayKey)
     .sort((a, b) => DateTime.fromISO(a.start) - DateTime.fromISO(b.start));
-  const status = dayStatus(summary);
+  const status = dayStatus(summary, dayKey);
+  const dayTotal = isWeekend(dayKey) ? getWeekendTotal() : summary.total;
+  const label = isWeekend(dayKey) ? 'Weekend total' : 'Total';
+  const target = isWeekend(dayKey) ? 5 : 8;
   return `
     <div class="day-row" data-day="${dayKey}">
       <div class="day-info">
@@ -205,7 +231,7 @@ function renderDayColumn(day, summary, blocks) {
           <span class="day-name">${dayLabel}</span>
           <span class="day-date">${dayDate}</span>
         </div>
-        <div class="day-total">Total ${summary.total.toFixed(1)} / 8h</div>
+        <div class="day-total">${label} ${dayTotal.toFixed(1)} / ${target}h</div>
         <div class="day-status ${status.cls}">${status.text}</div>
       </div>
       <div class="day-body">
@@ -244,7 +270,7 @@ function durationHours(block) {
 
 function renderWeekGrid() {
   const columns = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 7; i++) {
     const day = state.weekStart.plus({ days: i });
     const key = day.toISODate();
     columns.push(renderDayColumn(day, state.data.daySummaries[key], state.data.blocks));
@@ -311,6 +337,7 @@ function renderModal() {
     endDefault.toISO(),
     block?.id
   );
+  const remainingLabel = remainingInfo.label === 'weekend' ? 'to reach 5h this weekend' : 'to reach 8h today';
   return `
     <div class="modal-backdrop">
       <div class="modal card">
@@ -322,7 +349,7 @@ function renderModal() {
           <input type="time" name="end" value="${endDefault.toFormat('HH:mm')}" required />
           <div class="footer-note">Will apply to ${actorName}</div>
           <div class="remaining-hours" id="remaining-hours">
-            ${fmtDurationHours(remainingInfo.remaining)} left to reach 8h today
+            ${fmtDurationHours(remainingInfo.remaining)} left ${remainingLabel}
           </div>
           ${state.error ? `<div class="error">${state.error}</div>` : ''}
           <div style="display:flex; gap:8px; justify-content:flex-end;">
@@ -398,7 +425,8 @@ function renderApp() {
       const start = day.set({ hour: startHour, minute: startMinute }).toISO();
       const end = day.set({ hour: endHour, minute: endMinute }).toISO();
       const remainingInfo = computeRemainingHours(state.modal.day, start, end, state.modal.block?.id);
-      remainingEl.textContent = `${fmtDurationHours(remainingInfo.remaining)} left to reach 8h today`;
+      const label = remainingInfo.label === 'weekend' ? 'to reach 5h this weekend' : 'to reach 8h today';
+      remainingEl.textContent = `${fmtDurationHours(remainingInfo.remaining)} left ${label}`;
     };
 
     form.start.addEventListener('input', updateRemaining);
