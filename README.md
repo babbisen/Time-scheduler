@@ -12,15 +12,44 @@ npm run dev
 Then open http://localhost:3000.
 
 * Password gate is disabled for now; the login screen will let anyone in.
-* On Vercel, data is stored under `/tmp/data` and may reset between cold starts; the app falls back to in-memory storage if writes are unavailable.
-* Data is stored in `data/db.json`; it will be created on first run.
 * Timezone is locked to Europe/Brussels.
 
+## Persistence (PostgreSQL + Prisma)
+
+This app uses PostgreSQL via Prisma. You must set a `DATABASE_URL` environment variable.
+
+### Local setup
+
+1. Create a Postgres database and copy the connection string.
+2. Create a `.env` file:
+
+   ```
+   DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DBNAME"
+   ```
+
+3. Initialize the schema and generate the Prisma client:
+
+   ```bash
+   npx prisma migrate dev --name init
+   npx prisma generate
+   ```
+
+### Vercel setup
+
+1. Create a Postgres database (Vercel Postgres or any hosted Postgres).
+2. Set `DATABASE_URL` in the Vercel project environment variables.
+3. Run the Prisma migration:
+
+   ```bash
+   npx prisma migrate deploy
+   ```
+
+After that, deploy the app. The API routes will ensure the fixed people are created.
+
 ## Features
-- Password gate with short-lived cookie session.
+- Shared access (password gate disabled for now).
 - Fixed team of four with color labels, selectable via pills.
 - Week navigation (previous/next/this week) with ISO week numbers.
-- Create, edit, and delete blocks for the selected person using a modal with quick presets.
-- Daily rules enforced on save: max 8h/day, max 4h before 17:00, overlap prevention, and 40h/week cap.
-- After-hours status indicator (needs ≥4h after 17:00 when a day hits 8h).
-- Weekly sidebar totals and simple change history (last 3 actions).
+- Create, edit, and delete blocks for the selected person using a time-only modal.
+- Daily rules enforced on save: max 8h/day on weekdays, max 5h across weekend, overlap prevention, and 40h/week cap.
+- Weekly sidebar totals with per-person earnings and recent change history.

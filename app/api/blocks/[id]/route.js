@@ -1,70 +1,135 @@
 import { NextResponse } from 'next/server';
-import { DateTime } from 'luxon';
 import { nanoid } from 'nanoid';
-import { loadDb, saveDb, TIMEZONE } from '../../../../lib/db.js';
+import { prisma, ensurePersons, TIMEZONE } from '../../../../lib/db.js';
 import { buildWeekPayload, getWeekRange, validateBlock, weekStart } from '../../../../lib/scheduler.js';
 import { requireAuth } from '../../../../lib/auth.js';
+import { DateTime } from 'luxon';
 
 export async function PATCH(request, { params }) {
   const { id } = params;
   const body = await request.json();
 
-  const db = loadDb();
-  const auth = requireAuth(db);
+  const auth = requireAuth();
   if (!auth.authorized) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const idx = db.blocks.findIndex((b) => b.id === id);
-  if (idx === -1) {
+  const existingBlock = await prisma.block.findUnique({ where: { id } });
+  if (!existingBlock) {
     return NextResponse.json({ error: 'Block not found' }, { status: 404 });
   }
 
-  const original = db.blocks[idx];
+  const original = {
+    ...existingBlock,
+    start: existingBlock.start.toISOString(),
+    end: existingBlock.end.toISOString()
+  };
   const updated = { ...original, ...body };
   const weekRange = getWeekRange(weekStart(updated.start));
-  const errors = validateBlock(updated, db.blocks, weekRange);
+  const existingBlocks = await prisma.block.findMany({
+    where: {
+      start: {
+        gte: weekRange.start.toJSDate(),
+        lt: weekRange.end.toJSDate()
+      }
+    }
+  });
+  const normalizedExisting = existingBlocks.map((block) => ({
+    ...block,
+    start: block.start.toISOString(),
+    end: block.end.toISOString()
+  }));
+  const errors = validateBlock(updated, normalizedExisting, weekRange);
   if (errors.length) {
     return NextResponse.json({ error: errors.join(' ') }, { status: 400 });
   }
 
-  db.blocks[idx] = updated;
-  db.history.push({
-    id: nanoid(),
-    timestamp: DateTime.now().setZone(TIMEZONE).toISO(),
-    actorPersonId: request.headers.get('x-actor') || updated.personId,
-    targetPersonId: updated.personId,
-    action: 'update',
-    details: `Updated block on ${DateTime.fromISO(updated.start).toFormat('ccc')} for ${updated.personId}`
+  await ensurePersons();
+  await prisma.block.update({
+    where: { id },
+    data: {
+      personId: updated.personId,
+      start: new Date(updated.start),
+      end: new Date(updated.end)
+    }
   });
-  saveDb(db);
-  return NextResponse.json(buildWeekPayload(db, weekRange.start.toISODate()));
+  await prisma.history.create({
+    data: {
+      id: nanoid(),
+      timestamp: DateTime.now().setZone(TIMEZONE).toJSDate(),
+      actorPersonId: request.headers.get('x-actor') || updated.personId,
+      targetPersonId: updated.personId,
+      action: 'update',
+      details: `Updated block on ${DateTime.fromISO(updated.start).toFormat('ccc')} for ${updated.personId}`
+    }
+  });
+  const [persons, blocks] = await Promise.all([
+    prisma.person.findMany({ orderBy: { id: 'asc' } }),
+    prisma.block.findMany({
+      where: {
+        start: {
+          gte: weekRange.start.toJSDate(),
+          lt: weekRange.end.toJSDate()
+        }
+      },
+      orderBy: { start: 'asc' }
+    })
+  ]);
+  const normalizedBlocks = blocks.map((block) => ({
+    ...block,
+    start: block.start.toISOString(),
+    end: block.end.toISOString()
+  }));
+  return NextResponse.json(buildWeekPayload({ persons, blocks: normalizedBlocks }, weekRange.start.toISODate()));
 }
 
 export async function DELETE(request, { params }) {
   const { id } = params;
 
-  const db = loadDb();
-  const auth = requireAuth(db);
+  const auth = requireAuth();
   if (!auth.authorized) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const idx = db.blocks.findIndex((b) => b.id === id);
-  if (idx === -1) {
+  const existingBlock = await prisma.block.findUnique({ where: { id } });
+  if (!existingBlock) {
     return NextResponse.json({ error: 'Block not found' }, { status: 404 });
   }
 
-  const block = db.blocks[idx];
-  db.blocks.splice(idx, 1);
-  db.history.push({
-    id: nanoid(),
-    timestamp: DateTime.now().setZone(TIMEZONE).toISO(),
-    actorPersonId: request.headers.get('x-actor') || block.personId,
-    targetPersonId: block.personId,
-    action: 'delete',
-    details: `Deleted block ${DateTime.fromISO(block.start).toFormat('ccc HH:mm')} for ${block.personId}`
+  const block = {
+    ...existingBlock,
+    start: existingBlock.start.toISOString(),
+    end: existingBlock.end.toISOString()
+  };
+  await prisma.block.delete({ where: { id } });
+  await prisma.history.create({
+    data: {
+      id: nanoid(),
+      timestamp: DateTime.now().setZone(TIMEZONE).toJSDate(),
+      actorPersonId: request.headers.get('x-actor') || block.personId,
+      targetPersonId: block.personId,
+      action: 'delete',
+      details: `Deleted block ${DateTime.fromISO(block.start).toFormat('ccc HH:mm')} for ${block.personId}`
+    }
   });
-  saveDb(db);
-  return NextResponse.json(buildWeekPayload(db, weekStart(block.start)));
+  const wkStart = weekStart(block.start);
+  const weekRange = getWeekRange(wkStart);
+  const [persons, blocks] = await Promise.all([
+    prisma.person.findMany({ orderBy: { id: 'asc' } }),
+    prisma.block.findMany({
+      where: {
+        start: {
+          gte: weekRange.start.toJSDate(),
+          lt: weekRange.end.toJSDate()
+        }
+      },
+      orderBy: { start: 'asc' }
+    })
+  ]);
+  const normalizedBlocks = blocks.map((entry) => ({
+    ...entry,
+    start: entry.start.toISOString(),
+    end: entry.end.toISOString()
+  }));
+  return NextResponse.json(buildWeekPayload({ persons, blocks: normalizedBlocks }, wkStart));
 }
