@@ -3,19 +3,19 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "npx prisma generate && npx prisma migrate deploy && next build",
-    "start": "next start"
+    "dev": "node server.js",
+    "build": "npx prisma generate && npx prisma migrate deploy && npx prisma db seed",
+    "start": "node server.js"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   },
   "dependencies": {
-    "next": "14.1.0",
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
+    "@prisma/client": "5.22.0",
     "cookie-parser": "^1.4.6",
     "express": "^4.19.2",
     "luxon": "^3.4.4",
     "nanoid": "^5.0.7",
-    "@prisma/client": "5.22.0",
     "prisma": "5.22.0"
   }
 }
