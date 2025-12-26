@@ -110,8 +110,9 @@ async function login(password) {
   try {
     await api('/api/login', { method: 'POST', body: JSON.stringify({ password }) });
     const weekStart = DateTime.now().setZone(TIMEZONE).startOf('week');
-    await loadWeek(weekStart);
-    setState({ authed: true, currentActor: state.data.persons[0].id, loading: false });
+    const data = await loadWeek(weekStart);
+    const firstPerson = data?.persons?.[0]?.id || null;
+    setState({ authed: true, currentActor: firstPerson, loading: false });
   } catch (err) {
     setState({ error: err.message, loading: false });
   }
@@ -123,9 +124,12 @@ async function loadWeek(weekStart) {
   try {
     const data = await api(`/api/week?start=${iso}`);
     const history = await api('/api/history?limit=3');
-    setState({ data, weekStart, history, loading: false, currentActor: state.currentActor || data.persons[0].id });
+    const fallbackActor = data?.persons?.[0]?.id || null;
+    setState({ data, weekStart, history, loading: false, currentActor: state.currentActor || fallbackActor });
+    return data;
   } catch (err) {
     setState({ error: err.message, loading: false });
+    throw err;
   }
 }
 
