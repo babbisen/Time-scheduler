@@ -6,7 +6,6 @@ import { PrismaClient } from '@prisma/client';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const PASSWORD = process.env.APP_PASSWORD || 'letmein';
 const TIMEZONE = 'Europe/Brussels';
 
 const sessions = new Set();
@@ -17,12 +16,7 @@ app.use(cookieParser());
 app.use(express.static('public'));
 
 function requireAuth(req, res, next) {
-  const token = req.cookies.session;
-  if (token && sessions.has(token)) {
-    next();
-  } else {
-    res.status(401).json({ error: 'Unauthorized' });
-  }
+  next();
 }
 
 function weekStart(dateIso) {
@@ -255,16 +249,12 @@ function asyncHandler(handler) {
 }
 
 app.post('/api/login', (req, res) => {
-  const { password } = req.body;
-  if (password === PASSWORD) {
-    const token = nanoid();
-    sessions.add(token);
-    res.cookie('session', token, { httpOnly: true, sameSite: 'lax', maxAge: 1000 * 60 * 60 });
-    res.json({ success: true });
-  } else {
-    res.status(401).json({ error: 'Invalid password' });
-  }
+  const token = nanoid();
+  sessions.add(token);
+  res.cookie('session', token, { httpOnly: true, sameSite: 'lax', maxAge: 1000 * 60 * 60 });
+  res.json({ success: true });
 });
+
 
 app.get('/api/week', requireAuth, asyncHandler(async (req, res) => {
   const startParam = req.query.start;
