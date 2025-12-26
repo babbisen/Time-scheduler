@@ -14,6 +14,8 @@
     "cookie-parser": "^1.4.6",
     "express": "^4.19.2",
     "luxon": "^3.4.4",
-    "nanoid": "^5.0.7"
+    "nanoid": "^5.0.7",
+    "@prisma/client": "5.22.0",
+    "prisma": "5.22.0"
   }
 }
