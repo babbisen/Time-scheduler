@@ -2,45 +2,15 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import { DateTime, Interval } from 'luxon';
 import { nanoid } from 'nanoid';
-import fs from 'fs';
-import path from 'path';
+import { PrismaClient } from '@prisma/client';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const PASSWORD = process.env.APP_PASSWORD || 'letmein';
-const DATA_DIR = path.join(process.cwd(), 'data');
-const DB_FILE = path.join(DATA_DIR, 'db.json');
 const TIMEZONE = 'Europe/Brussels';
 
 const sessions = new Set();
-
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
-function loadDb() {
-  if (!fs.existsSync(DB_FILE)) {
-    const seed = {
-      persons: [
-        { id: 'anna', name: 'Anna', color: '#3b82f6' },
-        { id: 'bob', name: 'Bob', color: '#22c55e' },
-        { id: 'carla', name: 'Carla', color: '#f97316' },
-        { id: 'dan', name: 'Dan', color: '#a855f7' }
-      ],
-      blocks: [],
-      history: []
-    };
-    fs.writeFileSync(DB_FILE, JSON.stringify(seed, null, 2));
-  }
-  const content = fs.readFileSync(DB_FILE, 'utf-8');
-  return JSON.parse(content);
-}
-
-let db = loadDb();
-
-function saveDb() {
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-}
+const prisma = new PrismaClient();
 
 app.use(express.json());
 app.use(cookieParser());
@@ -228,28 +198,59 @@ function validateBlock(newBlock, blocks, weekRange, isUpdate = false) {
   return errors;
 }
 
-function getWeekBlocks(startIso) {
+function getWeekBlocks(startIso, blocks) {
   const { start, end } = getWeekRange(startIso);
-  return db.blocks.filter((b) => {
+  return blocks.filter((b) => {
     const s = DateTime.fromISO(b.start, { zone: TIMEZONE });
     return s >= start && s < end;
   });
 }
 
-function buildWeekPayload(startIso) {
+function serializeBlock(block) {
+  return {
+    ...block,
+    start: DateTime.fromJSDate(block.start, { zone: TIMEZONE }).toISO(),
+    end: DateTime.fromJSDate(block.end, { zone: TIMEZONE }).toISO()
+  };
+}
+
+function serializeHistory(history) {
+  return {
+    ...history,
+    timestamp: DateTime.fromJSDate(history.timestamp, { zone: TIMEZONE }).toISO()
+  };
+}
+
+async function buildWeekPayload(startIso) {
   const weekRange = getWeekRange(startIso);
-  const weekBlocks = getWeekBlocks(startIso);
+  const persons = await prisma.person.findMany({ orderBy: { id: 'asc' } });
+  const rawBlocks = await prisma.block.findMany({
+    where: {
+      start: {
+        gte: weekRange.start.toJSDate(),
+        lt: weekRange.end.toJSDate()
+      }
+    },
+    orderBy: { start: 'asc' }
+  });
+  const weekBlocks = rawBlocks.map(serializeBlock);
   const daySummaries = computeDaySummaries(weekBlocks, weekRange);
   const personSummaries = computePersonSummaries(weekBlocks, weekRange);
   const weekTotal = Number(computeWeekTotals(daySummaries).toFixed(2));
   return {
     weekStart: weekRange.start.toISODate(),
     weekEnd: weekRange.end.minus({ days: 1 }).toISODate(),
-    persons: db.persons,
+    persons,
     blocks: weekBlocks,
     daySummaries,
     personSummaries,
     weekTotal
+  };
+}
+
+function asyncHandler(handler) {
+  return (req, res, next) => {
+    Promise.resolve(handler(req, res, next)).catch(next);
   };
 }
 
@@ -265,76 +266,123 @@ app.post('/api/login', (req, res) => {
   }
 });
 
-app.get('/api/week', requireAuth, (req, res) => {
+app.get('/api/week', requireAuth, asyncHandler(async (req, res) => {
   const startParam = req.query.start;
   if (!startParam) return res.status(400).json({ error: 'start is required (YYYY-MM-DD)' });
   const wkStart = weekStart(startParam);
-  res.json(buildWeekPayload(wkStart));
-});
+  res.json(await buildWeekPayload(wkStart));
+}));
 
-app.get('/api/history', requireAuth, (req, res) => {
+app.get('/api/history', requireAuth, asyncHandler(async (req, res) => {
   const limit = Number(req.query.limit || 3);
-  res.json(db.history.slice(-limit).reverse());
-});
+  const history = await prisma.history.findMany({
+    orderBy: { timestamp: 'desc' },
+    take: limit
+  });
+  res.json(history.map(serializeHistory));
+}));
 
-app.post('/api/blocks', requireAuth, (req, res) => {
+app.post('/api/blocks', requireAuth, asyncHandler(async (req, res) => {
   const { personId, start, end } = req.body;
   if (!personId || !start || !end) return res.status(400).json({ error: 'personId, start and end are required.' });
   const weekRange = getWeekRange(weekStart(start));
   const newBlock = { id: nanoid(), personId, start, end };
-  const errors = validateBlock(newBlock, db.blocks, weekRange);
-  if (errors.length) return res.status(400).json({ error: errors.join(' ') });
-  db.blocks.push(newBlock);
-  db.history.push({
-    id: nanoid(),
-    timestamp: DateTime.now().setZone(TIMEZONE).toISO(),
-    actorPersonId: req.headers['x-actor'] || personId,
-    targetPersonId: personId,
-    action: 'create',
-    details: `Created block ${DateTime.fromISO(start).toFormat('HH:mm')}–${DateTime.fromISO(end).toFormat('HH:mm')} for ${personId}`
+  const existingBlocks = await prisma.block.findMany({
+    where: {
+      start: {
+        gte: weekRange.start.toJSDate(),
+        lt: weekRange.end.toJSDate()
+      }
+    }
   });
-  saveDb();
-  res.json(buildWeekPayload(weekRange.start.toISODate()));
-});
+  const normalizedBlocks = existingBlocks.map(serializeBlock);
+  const errors = validateBlock(newBlock, normalizedBlocks, weekRange);
+  if (errors.length) return res.status(400).json({ error: errors.join(' ') });
+  await prisma.block.create({
+    data: {
+      id: newBlock.id,
+      personId,
+      start: DateTime.fromISO(start, { zone: TIMEZONE }).toJSDate(),
+      end: DateTime.fromISO(end, { zone: TIMEZONE }).toJSDate()
+    }
+  });
+  await prisma.history.create({
+    data: {
+      id: nanoid(),
+      timestamp: DateTime.now().setZone(TIMEZONE).toJSDate(),
+      actorPersonId: req.headers['x-actor'] || personId,
+      targetPersonId: personId,
+      action: 'create',
+      details: `Created block ${DateTime.fromISO(start).toFormat('HH:mm')}–${DateTime.fromISO(end).toFormat('HH:mm')} for ${personId}`
+    }
+  });
+  res.json(await buildWeekPayload(weekRange.start.toISODate()));
+}));
 
-app.patch('/api/blocks/:id', requireAuth, (req, res) => {
+app.patch('/api/blocks/:id', requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const idx = db.blocks.findIndex((b) => b.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'Block not found' });
-  const original = db.blocks[idx];
-  const updated = { ...original, ...req.body };
+  const original = await prisma.block.findUnique({ where: { id } });
+  if (!original) return res.status(404).json({ error: 'Block not found' });
+  const updated = {
+    id: original.id,
+    personId: req.body.personId ?? original.personId,
+    start: req.body.start ?? DateTime.fromJSDate(original.start, { zone: TIMEZONE }).toISO(),
+    end: req.body.end ?? DateTime.fromJSDate(original.end, { zone: TIMEZONE }).toISO()
+  };
   const weekRange = getWeekRange(weekStart(updated.start));
-  const errors = validateBlock(updated, db.blocks, weekRange, true);
+  const existingBlocks = await prisma.block.findMany({
+    where: {
+      start: {
+        gte: weekRange.start.toJSDate(),
+        lt: weekRange.end.toJSDate()
+      }
+    }
+  });
+  const normalizedBlocks = existingBlocks.map(serializeBlock);
+  const errors = validateBlock(updated, normalizedBlocks, weekRange, true);
   if (errors.length) return res.status(400).json({ error: errors.join(' ') });
-  db.blocks[idx] = updated;
-  db.history.push({
-    id: nanoid(),
-    timestamp: DateTime.now().setZone(TIMEZONE).toISO(),
-    actorPersonId: req.headers['x-actor'] || updated.personId,
-    targetPersonId: updated.personId,
-    action: 'update',
-    details: `Updated block on ${DateTime.fromISO(updated.start).toFormat('ccc')} for ${updated.personId}`
+  await prisma.block.update({
+    where: { id },
+    data: {
+      personId: updated.personId,
+      start: DateTime.fromISO(updated.start, { zone: TIMEZONE }).toJSDate(),
+      end: DateTime.fromISO(updated.end, { zone: TIMEZONE }).toJSDate()
+    }
   });
-  saveDb();
-  res.json(buildWeekPayload(weekRange.start.toISODate()));
-});
+  await prisma.history.create({
+    data: {
+      id: nanoid(),
+      timestamp: DateTime.now().setZone(TIMEZONE).toJSDate(),
+      actorPersonId: req.headers['x-actor'] || updated.personId,
+      targetPersonId: updated.personId,
+      action: 'update',
+      details: `Updated block on ${DateTime.fromISO(updated.start).toFormat('ccc')} for ${updated.personId}`
+    }
+  });
+  res.json(await buildWeekPayload(weekRange.start.toISODate()));
+}));
 
-app.delete('/api/blocks/:id', requireAuth, (req, res) => {
+app.delete('/api/blocks/:id', requireAuth, asyncHandler(async (req, res) => {
   const { id } = req.params;
-  const idx = db.blocks.findIndex((b) => b.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'Block not found' });
-  const block = db.blocks[idx];
-  db.blocks.splice(idx, 1);
-  db.history.push({
-    id: nanoid(),
-    timestamp: DateTime.now().setZone(TIMEZONE).toISO(),
-    actorPersonId: req.headers['x-actor'] || block.personId,
-    targetPersonId: block.personId,
-    action: 'delete',
-    details: `Deleted block ${DateTime.fromISO(block.start).toFormat('ccc HH:mm')} for ${block.personId}`
+  const block = await prisma.block.findUnique({ where: { id } });
+  if (!block) return res.status(404).json({ error: 'Block not found' });
+  await prisma.block.delete({ where: { id } });
+  await prisma.history.create({
+    data: {
+      id: nanoid(),
+      timestamp: DateTime.now().setZone(TIMEZONE).toJSDate(),
+      actorPersonId: req.headers['x-actor'] || block.personId,
+      targetPersonId: block.personId,
+      action: 'delete',
+      details: `Deleted block ${DateTime.fromJSDate(block.start, { zone: TIMEZONE }).toFormat('ccc HH:mm')} for ${block.personId}`
+    }
   });
-  saveDb();
-  res.json(buildWeekPayload(weekStart(block.start)));
+  res.json(await buildWeekPayload(weekStart(DateTime.fromJSDate(block.start, { zone: TIMEZONE }).toISO())));
+}));
+
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 app.listen(PORT, () => {
