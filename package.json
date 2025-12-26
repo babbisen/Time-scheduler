@@ -7,6 +7,9 @@
     "build": "npx prisma generate && npx prisma migrate deploy && npx prisma db seed",
     "start": "node server.js"
   },
+  "prisma": {
+    "seed": "node ./prisma/seed.js"
+  },
   "dependencies": {
     "express": "^4.19.2",
     "cookie-parser": "^1.4.6",
