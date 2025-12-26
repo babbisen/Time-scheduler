@@ -255,6 +255,7 @@ app.post('/api/login', (req, res) => {
   res.json({ success: true });
 });
 
+
 app.get('/api/week', requireAuth, asyncHandler(async (req, res) => {
   const startParam = req.query.start;
   if (!startParam) return res.status(400).json({ error: 'start is required (YYYY-MM-DD)' });
